@@ -4,8 +4,8 @@ Unsupervised visual defect detection with PatchCore, compared against supervised
 
 ## Status
 - [x] Week 1: Data exploration, PyTorch basics, ResNet feature extraction
-- [ ] Week 2: PatchCore with anomalib
-- [ ] Week 3: YOLO comparison
+- [x] Week 2: PatchCore with anomalib
+- [x] Week 3: YOLO comparison
 - [ ] Week 4: Own data, ONNX, Gradio demo
 
 ## Dataset
