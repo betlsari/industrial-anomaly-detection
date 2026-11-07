@@ -3,7 +3,7 @@
 Unsupervised visual defect detection trained only on defect-free images (PatchCore and PaDiM via
 [anomalib](https://github.com/open-edge-platform/anomalib) 2.7.0), compared against supervised YOLO11n with few labels.
 It also includes a multi-seed evaluation with a validation-based threshold, a simulated lighting-shift test,
-pixel-level evaluation, an ONNX CPU benchmark, and a Gradio demo.
+pixel-level evaluation, an ONNX CPU benchmark, a Gradio demo, and a small FastAPI inference service.
 
 > **Scope note:** I used anomalib's implementations; I did not re-implement PatchCore from scratch.
 > I did not collect my own data: lighting changes are **simulated** brightness scaling, not real lighting variation.
@@ -15,7 +15,7 @@ pixel-level evaluation, an ONNX CPU benchmark, and a Gradio demo.
 - **Ranking quality is stable, the operating point is not.** On VisA `cashew` (5 seeds), image AUROC was 0.961 ± 0.004, but a threshold chosen from a held-out validation set gave recall between 0.64 and 0.80 depending on the seed.
 - **A fixed threshold does not survive brightness changes.** AUROC stayed at 0.953-0.968 for brightness x0.5-x1.5 (3 seeds), but the false-alarm rate rose from 1.3% to 17-24% (x1.25, x0.5) and 95% (x1.5).
 - **Pixel-level localization is good:** pixel AUROC ≈ 0.991 on `cashew` (3 seeds), with a class-imbalance caveat (see below).
-- **PatchCore is slow on CPU:** about 1 FPS in my Kaggle CPU environment (ONNX Runtime ~1.2 FPS vs PyTorch ~0.95 FPS).
+- **PatchCore is slow on CPU:** about 1 FPS in my environments (ONNX Runtime ~1.2 FPS vs PyTorch ~0.95 FPS on Kaggle; about 1 s per request in the local service).
 
 ## Results
 
@@ -91,7 +91,7 @@ Performance drops substantially on `capsules` and `macaroni1` (small defects, mu
 
 ### 5. Simulated lighting shift (VisA `cashew`, 3 seeds: 0, 1, 4)
 
-The model and threshold come from section 4 (threshold chosen at normal lighting on validation data and **kept fixed**). Test images were multiplied by a brightness factor (clipped to 0-255).
+The model and threshold follow section 4 (threshold chosen at normal lighting on validation data and **kept fixed**). Test images were multiplied by a brightness factor (clipped to 0-255).
 
 | Brightness | AUROC | False-alarm rate | Recall |
 |---|---|---|---|
@@ -136,15 +136,42 @@ Gradio app: upload an image, view the heatmap and OK/NOK decision, adjust the th
 
 The demo ran before the validation-based protocol of section 4: its default threshold (0.612) was the 95th percentile of 24 good *test* images' scores, so it is not an unbiased setting and not a production value. The heatmap is normalized per image, so good images can also show red regions: the decision comes from the score, not the heatmap.
 
+## REST service (FastAPI + ONNX Runtime)
+
+A small inference service in `service/` loads the exported ONNX model **once at startup** (no per-request loading, no training) and scores uploaded images.
+
+```
+cd service
+py -3.13 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+# place model.onnx and model.onnx.data (Drive link below) in service/models/
+.venv\Scripts\python -m uvicorn app:app --port 8000
+```
+
+- `GET /health`: service and model status.
+- `POST /predict` (multipart image; optional `threshold`, `include_heatmap`): returns `score`, `decision` (OK/NOK), `inference_ms`, optionally a base64 PNG heatmap.
+- Interactive docs at `/docs`. Settings (model path, input size, threshold) live in `service/config.json`.
+
+**Check:** on 6 VisA `cashew` test images the local service reproduced the Kaggle ONNX scores to three decimals (e.g. 0.8147 vs 0.815). With threshold 0.612, 4 of 6 decisions were correct (one missed defect with score 0.567, one false alarm with score 0.651). This is a smoke test that the model survived the move to another machine, not an accuracy measurement, and those images were also used to pick the threshold.
+
+**Limits:**
+- About 1 s per request on my CPU (~1 FPS): the exported model expects batch 2, so each image is sent twice. Re-exporting with batch 1 might help (not tried).
+- Single process, no authentication, no request logging yet.
+- The threshold in `config.json` (0.612) is the earlier demo value chosen from test images, not a calibrated setting.
+- Python 3.15 had no `onnxruntime` wheels in my environment; use Python 3.12 or 3.13.
+- The model is specific to VisA `cashew`.
+
 ## Repository
 
-| File | Content |
+| Path | Content |
 |---|---|
 | `01_veri_ve_pytorch_temelleri.ipynb` | MVTec exploration, tensors, Dataset/DataLoader, ResNet feature maps |
 | `02_patchcore_anomalib.ipynb` | PatchCore and PaDiM on 4 MVTec categories, heatmaps |
 | `03_yolo_karsilastirma.ipynb` | Mask-to-box labels, YOLO11n with 5/10/20 labels, comparison |
 | `04_visa_isik_testi.ipynb` | VisA benchmark, first lighting test, ONNX speed, Gradio demo |
 | `05_saglam_degerlendirme.ipynb` | Validation-based threshold, multi-seed metrics, lighting test, pixel AUROC |
+| `src/` | Scripts used in the experiments (run as separate processes) |
+| `service/` | FastAPI inference service (`app.py`, `config.json`, `requirements.txt`, `test_istemci.py`) |
 | `ana_grafik.png` | PatchCore vs. YOLO plot |
 
 Model files (365 MB, exceeds GitHub's limit): [Google Drive](https://drive.google.com/drive/folders/1kfuGQy_Vl0Ds3gg8E1BDH6Z6jHAdPN0w?usp=drive_link).
@@ -152,7 +179,7 @@ Model files (365 MB, exceeds GitHub's limit): [Google Drive](https://drive.googl
 
 ## Reproduce
 
-Notebooks were run on Kaggle (T4 GPU). Main dependencies: `anomalib==2.7.0`, `ultralytics`, `onnx`, `onnxruntime`, `onnxscript`, `gradio`, `scikit-learn`, `opencv-python`.
+Notebooks were run on Kaggle (T4 GPU). Main dependencies: `anomalib==2.7.0`, `ultralytics`, `onnx`, `onnxruntime`, `onnxscript`, `gradio`, `scikit-learn`, `opencv-python`. The service has its own pinned `service/requirements.txt`.
 
 Notes from my environment:
 - Running anomalib directly inside a Kaggle notebook raised a `RecursionError` from progress bars (`tqdm`/`rich`), so training code was written to `.py` files and run as separate processes (`!python script.py`).
@@ -176,7 +203,7 @@ Notes from my environment:
 - No hyperparameter tuning for PatchCore (resolution, layers) or YOLO (schedule).
 - Small test sets (e.g. 50 good images); seed-based std does not capture test-set sampling uncertainty.
 - Pixel AUROC is inflated by class imbalance; PRO was not computed.
-- CPU speed is a single, rough measurement on a Kaggle machine.
+- CPU speed is a rough measurement; the service has no concurrency, authentication or logging yet, and its threshold is not calibrated.
 
 ## Status
 
@@ -185,5 +212,5 @@ Notes from my environment:
 - [x] Week 3: YOLO comparison
 - [x] Week 4: VisA benchmark, lighting test, ONNX speed, Gradio demo
 - [x] Stage 1: robust evaluation (validation-based threshold, multi-seed, pixel AUROC)
-- [ ] Stage 2: REST service (FastAPI) with the ONNX model
-- [ ] Stage 3: decision rules, logging, human-review queue
+- [x] Stage 2: REST service (FastAPI) with the ONNX model
+- [ ] Stage 3: calibrated threshold, three-zone decision (OK / review / NOK), request logging, human-review queue
