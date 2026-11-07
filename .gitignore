@@ -1,0 +1,5 @@
+﻿service/models/
+.venv/
+__pycache__/
+service/harita.png
+service/ornek/
