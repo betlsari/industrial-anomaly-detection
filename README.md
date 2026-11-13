@@ -220,13 +220,3 @@ Notes from my environment:
 - The three-zone calibration is a single-seed experiment and is not part of the service.
 - CPU speed is a rough measurement; the service has no concurrency, authentication or logging, and its threshold is not calibrated.
 
-## Status
-
-- [x] Week 1: Data exploration, PyTorch basics, ResNet feature extraction
-- [x] Week 2: PatchCore + PaDiM on MVTec AD
-- [x] Week 3: YOLO comparison
-- [x] Week 4: VisA benchmark, lighting test, ONNX speed, Gradio demo
-- [x] Stage 1: robust evaluation (validation-based threshold, multi-seed, pixel AUROC)
-- [x] Stage 2: REST service (FastAPI) with the ONNX model
-- [x] Stage 3 (partial): three-zone calibration experiment (Section 9)
-- [ ] Not done: integrating the zones into the service, request logging, alarm rule, review queue/panel
