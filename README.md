@@ -3,7 +3,8 @@
 Unsupervised visual defect detection trained only on defect-free images (PatchCore and PaDiM via
 [anomalib](https://github.com/open-edge-platform/anomalib) 2.7.0), compared against supervised YOLO11n with few labels.
 It also includes a multi-seed evaluation with a validation-based threshold, a simulated lighting-shift test,
-pixel-level evaluation, an ONNX CPU benchmark, a Gradio demo, and a small FastAPI inference service.
+pixel-level evaluation, a three-zone (OK / review / NOK) calibration experiment, an ONNX CPU benchmark,
+a Gradio demo, and a small FastAPI inference service.
 
 > **Scope note:** I used anomalib's implementations; I did not re-implement PatchCore from scratch.
 > I did not collect my own data: lighting changes are **simulated** brightness scaling, not real lighting variation.
@@ -14,13 +15,14 @@ pixel-level evaluation, an ONNX CPU benchmark, a Gradio demo, and a small FastAP
 - **YOLO11n with 5-20 labeled defects stayed near chance** (image AUROC 0.36-0.43) on MVTec `metal_nut`, while PatchCore on the same 90 test images scored 1.0. This holds for *this setup* (untuned training, one category), not for YOLO in general.
 - **Ranking quality is stable, the operating point is not.** On VisA `cashew` (5 seeds), image AUROC was 0.961 ± 0.004, but a threshold chosen from a held-out validation set gave recall between 0.64 and 0.80 depending on the seed.
 - **A fixed threshold does not survive brightness changes.** AUROC stayed at 0.953-0.968 for brightness x0.5-x1.5 (3 seeds), but the false-alarm rate rose from 1.3% to 17-24% (x1.25, x0.5) and 95% (x1.5).
+- **A review band helps with uncertain cases.** In a one-seed experiment, a three-zone rule (OK / human review / NOK) sent 90% of defective test images to rejection or review (10% passed unchecked), at the cost of 14% of good images going to review or rejection.
 - **Pixel-level localization is good:** pixel AUROC ≈ 0.991 on `cashew` (3 seeds), with a class-imbalance caveat (see below).
 - **PatchCore is slow on CPU:** about 1 FPS in my environments (ONNX Runtime ~1.2 FPS vs PyTorch ~0.95 FPS on Kaggle; about 1 s per request in the local service).
 
 ## Results
 
 Image AUROC values were computed manually with `sklearn.metrics.roc_auc_score` from per-image anomaly scores.
-PatchCore's coreset sampling is random, so small differences between runs are expected. Sections 1-3 are single runs; sections 4 and 5 use multiple seeds.
+PatchCore's coreset sampling is random, so small differences between runs are expected. Sections 1-3 are single runs; sections 4 and 5 use multiple seeds; section 9 is a single seed.
 
 ### 1. PatchCore vs. PaDiM on MVTec AD (full test sets, single run)
 
@@ -126,6 +128,19 @@ Rough comparison from a single measurement: batch size and pre/post-processing a
 The export printed a `Resize` version-conversion error, but the file loaded and, on 5 good/defective pairs, gave the defective image the higher score each time. I did not evaluate AUROC of the ONNX model on a full test set.
 Peak process memory during the benchmark was about 4.2 GB (it includes training, so it is not the model's inference footprint).
 
+### 9. Three-zone decision: calibration experiment (VisA `cashew`, 1 seed)
+
+To address the unstable single threshold, I tested a rule with a "needs human review" band. A new model was trained on 360 images (seed 0), exported to ONNX, and the 90 held-out validation images were scored with the same preprocessing as the service. Zone limits come from the validation scores only: below the 80th percentile = OK (0.6605), above the 95th = NOK (0.7210), in between = review. The percentiles were chosen before looking at test results.
+
+| Test images | OK | Review | NOK |
+|---|---|---|---|
+| Good (50) | 0.86 | 0.10 | 0.04 |
+| Defective (100) | 0.10 | 0.23 | 0.67 |
+
+90% of defective images are either rejected or sent to review; 10% pass unchecked. The cost: 14% of good images go to review or are rejected.
+
+**Limits:** one seed and one split (the 80th/95th percentiles rest on 18 and 5 validation images, and Section 4 showed thresholds vary across seeds); the test set is 67% defective, so a real line would have far more good items in the review queue; the ONNX export printed a converter error but the file scored all 240 images; the zone limits belong to this 360-image model and were **not integrated into the service**, which still uses the single demo threshold.
+
 ## Demo
 
 Gradio app: upload an image, view the heatmap and OK/NOK decision, adjust the threshold with a slider.
@@ -156,8 +171,8 @@ py -3.13 -m venv .venv
 
 **Limits:**
 - About 1 s per request on my CPU (~1 FPS): the exported model expects batch 2, so each image is sent twice. Re-exporting with batch 1 might help (not tried).
-- Single process, no authentication, no request logging yet.
-- The threshold in `config.json` (0.612) is the earlier demo value chosen from test images, not a calibrated setting.
+- Single process, no authentication, no request logging.
+- The threshold in `config.json` (0.612) is the earlier demo value chosen from test images, not a calibrated setting. A calibration experiment with a review band is in Section 9 but is not integrated into the service.
 - Python 3.15 had no `onnxruntime` wheels in my environment; use Python 3.12 or 3.13.
 - The model is specific to VisA `cashew`.
 
@@ -166,11 +181,10 @@ py -3.13 -m venv .venv
 | Path | Content |
 |---|---|
 | `01_veri_ve_pytorch_temelleri.ipynb` | MVTec exploration, tensors, Dataset/DataLoader, ResNet feature maps |
-| `02_patchcore_anomalib.ipynb` | PatchCore and PaDiM on 4 MVTec categories, heatmaps |
-| `03_yolo_karsilastirma.ipynb` | Mask-to-box labels, YOLO11n with 5/10/20 labels, comparison |
-| `04_visa_isik_testi.ipynb` | VisA benchmark, first lighting test, ONNX speed, Gradio demo |
+| `02-patchcore-anomalib.ipynb` | PatchCore and PaDiM on 4 MVTec categories, heatmaps |
+| `03-yolo-karsilastirma.ipynb` | Mask-to-box labels, YOLO11n with 5/10/20 labels, comparison |
+| `04-visa-isik-testi.ipynb` | VisA benchmark, first lighting test, ONNX speed, Gradio demo |
 | `05_saglam_degerlendirme.ipynb` | Validation-based threshold, multi-seed metrics, lighting test, pixel AUROC |
-| `src/` | Scripts used in the experiments (run as separate processes) |
 | `service/` | FastAPI inference service (`app.py`, `config.json`, `requirements.txt`, `test_istemci.py`) |
 | `ana_grafik.png` | PatchCore vs. YOLO plot |
 
@@ -203,7 +217,8 @@ Notes from my environment:
 - No hyperparameter tuning for PatchCore (resolution, layers) or YOLO (schedule).
 - Small test sets (e.g. 50 good images); seed-based std does not capture test-set sampling uncertainty.
 - Pixel AUROC is inflated by class imbalance; PRO was not computed.
-- CPU speed is a rough measurement; the service has no concurrency, authentication or logging yet, and its threshold is not calibrated.
+- The three-zone calibration is a single-seed experiment and is not part of the service.
+- CPU speed is a rough measurement; the service has no concurrency, authentication or logging, and its threshold is not calibrated.
 
 ## Status
 
@@ -213,4 +228,5 @@ Notes from my environment:
 - [x] Week 4: VisA benchmark, lighting test, ONNX speed, Gradio demo
 - [x] Stage 1: robust evaluation (validation-based threshold, multi-seed, pixel AUROC)
 - [x] Stage 2: REST service (FastAPI) with the ONNX model
-- [ ] Stage 3: calibrated threshold, three-zone decision (OK / review / NOK), request logging, human-review queue
+- [x] Stage 3 (partial): three-zone calibration experiment (Section 9)
+- [ ] Not done: integrating the zones into the service, request logging, alarm rule, review queue/panel
