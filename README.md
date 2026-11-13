@@ -188,7 +188,7 @@ py -3.13 -m venv .venv
 | `service/` | FastAPI inference service (`app.py`, `config.json`, `requirements.txt`, `test_istemci.py`) |
 | `ana_grafik.png` | PatchCore vs. YOLO plot |
 
-Model files (365 MB, exceeds GitHub's limit): [Google Drive](https://drive.google.com/drive/folders/1kfuGQy_Vl0Ds3gg8E1BDH6Z6jHAdPN0w?usp=drive_link)(https://drive.google.com/drive/folders/1kfuGQy_Vl0Ds3gg8E1BDH6Z6jHAdPN0w?usp=drive_link).
+Model files (365 MB, exceeds GitHub's limit):(https://drive.google.com/drive/folders/1kfuGQy_Vl0Ds3gg8E1BDH6Z6jHAdPN0w?usp=drive_link)
 `model.onnx` and `model.onnx.data` must stay in the same folder under these names.
 
 ## Reproduce
